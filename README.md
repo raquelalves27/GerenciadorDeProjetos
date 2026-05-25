@@ -39,6 +39,41 @@ docker exec implantacao_api python -m app.scripts.seed
 
 ---
 
+## Migrações e alterações recentes
+
+- Adicionado o campo `day` em `allocations` para suportar alocações por dia (antes eram apenas por `week_start`).
+
+- Arquivos importantes criados/alterados:
+	- [backend/migrations/versions/0001_add_allocations_day.py](backend/migrations/versions/0001_add_allocations_day.py) — migration que adiciona a coluna `day`.
+	- [backend/migrations/env.py](backend/migrations/env.py) — ambiente Alembic (simplificado).
+	- [backend/alembic.ini](backend/alembic.ini) — configuração mínima Alembic.
+	- [backend/requirements.txt](backend/requirements.txt) — adição de `alembic` e `psycopg[binary]`.
+	- [backend/app/api/v1/endpoints/schedule.py](backend/app/api/v1/endpoints/schedule.py) — aceita `day` no payload e no response.
+	- [frontend/src/app/schedule/page.tsx](frontend/src/app/schedule/page.tsx) — envia `day` ao criar alocação e filtra por dia na UI.
+
+- Comandos úteis (executar no host):
+
+```bash
+# (1) Subir infra
+docker compose up -d
+
+# (2) Se o container backend não tiver Alembic/psycopg instalados, instalar dentro do container
+docker exec implantacao_api pip install -r /app/requirements.txt
+
+# (3) Rodar migrations via Alembic (dentro do container backend). Se for preciso forçar URL sync:
+docker exec -e DATABASE_URL="postgresql://implantacao:implantacao@postgres:5432/implantacao" implantacao_api alembic upgrade head
+
+# Se a alteração já tiver sido aplicada manualmente no banco, marque a migration como aplicada:
+docker exec -e DATABASE_URL="postgresql://implantacao:implantacao@postgres:5432/implantacao" implantacao_api alembic stamp head
+```
+
+- Observações:
+	- No ambiente local eu já apliquei o `ALTER TABLE` diretamente e marquei a migration com `alembic stamp head` para sincronizar o histórico. Em ambientes de CI/CD recomenda-se rodar a migration via Alembic (passo 3) em vez do ALTER manual.
+	- O frontend agora envia a data exata (`day`) ao criar uma alocação — se o backend receber alocações sem `day` elas continuam compatíveis (fallback para `week_start`).
+
+
+---
+
 ## Estrutura de pastas
 
 ```

@@ -18,6 +18,8 @@ class AllocationCreate(BaseModel):
     user_id: str
     project_id: str
     week_start: date
+    # Optional exact day inside the week (yyyy-mm-dd). If omitted, allocation applies to the whole shift/week.
+    day: Optional[date] = None
     shift: str
     activity_type: str = "implantacao"
     notes: Optional[str] = None
@@ -70,6 +72,7 @@ async def get_week_schedule(
             "user_id": a.user_id,
             "project_id": a.project_id,
             "week_start": str(a.week_start),
+            "day": str(a.day) if getattr(a, 'day', None) else None,
             "shift": shift_key,
             "activity_type": a.activity_type.value.lower() if hasattr(a.activity_type, 'value') else str(a.activity_type).lower(),
             "notes": a.notes,
@@ -97,6 +100,7 @@ async def create_allocation(
         user_id=body.user_id,
         project_id=body.project_id,
         week_start=body.week_start,
+        day=body.day,
         shift=shift_val,
         activity_type=activity_val,
         notes=body.notes,

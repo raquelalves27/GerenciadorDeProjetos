@@ -165,6 +165,7 @@ class Allocation(SQLModel, table=True):
     user_id: str = Field(foreign_key="users.id", index=True)
     project_id: str = Field(foreign_key="projects.id", index=True)
     week_start: date = Field(index=True)
+    day: Optional[date] = None
     shift: ShiftType
     activity_type: ActivityType = Field(default=ActivityType.IMPLANTACAO)
     start_time: Optional[time] = None
