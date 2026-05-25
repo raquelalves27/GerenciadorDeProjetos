@@ -33,7 +33,7 @@ docker exec implantacao_api alembic upgrade head
 docker exec implantacao_api python -m app.scripts.seed
 
 # Acessar
-# API: http://localhost:8000/docs
+# API: http://localhost:8001/docs
 # App: http://localhost:3000
 ```
 

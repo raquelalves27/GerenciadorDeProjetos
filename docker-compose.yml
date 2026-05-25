@@ -37,7 +37,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - '8000:8000'
+      - '8001:8000'
     environment:
       DATABASE_URL: postgresql+asyncpg://implantacao:implantacao@postgres:5432/implantacao
       REDIS_URL: redis://redis:6379/0
@@ -61,7 +61,7 @@ services:
     ports:
       - '3000:3000'
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8001
     depends_on:
       - backend
 
