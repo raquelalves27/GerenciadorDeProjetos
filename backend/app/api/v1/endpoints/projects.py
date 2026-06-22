@@ -1,7 +1,7 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import date, datetime
 
 from app.core.database import get_session
@@ -27,6 +27,16 @@ class ProjectCreate(BaseModel):
     expected_end_date: date
     internal_notes: Optional[str] = None
 
+    # Inputs HTML type="date" enviam '' (string vazia) quando o campo é
+    # deixado em branco. Sem isso, o Pydantic tenta converter '' para date
+    # e quebra a criação do projeto com erro 422.
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def _empty_start_date_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
+
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -39,6 +49,13 @@ class ProjectUpdate(BaseModel):
     expected_end_date: Optional[date] = None
     actual_end_date: Optional[date] = None
     internal_notes: Optional[str] = None
+
+    @field_validator("start_date", "expected_end_date", "actual_end_date", mode="before")
+    @classmethod
+    def _empty_dates_to_none(cls, v):
+        if v == "":
+            return None
+        return v
 
 
 class ProjectUpdateCreate(BaseModel):

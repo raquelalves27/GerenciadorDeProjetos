@@ -67,14 +67,17 @@ class AllocationRepository:
 
         cloned, skipped = 0, 0
         conflict_svc = ConflictService(self.session)
+        week_offset = (target_week - source_week).days
         for a in source:
             conflict = await conflict_svc.check_shift_conflict(a.user_id, target_week, a.shift)
             if conflict:
                 skipped += 1
                 continue
+            from datetime import timedelta
+            new_day = (a.day + timedelta(days=week_offset)) if getattr(a, "day", None) else None
             new_a = Allocation(
                 user_id=a.user_id, project_id=a.project_id,
-                week_start=target_week, shift=a.shift,
+                week_start=target_week, day=new_day, shift=a.shift,
                 activity_type=a.activity_type, notes=a.notes,
                 created_by=created_by,
             )

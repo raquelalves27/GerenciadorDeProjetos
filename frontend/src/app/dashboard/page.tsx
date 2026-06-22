@@ -38,7 +38,15 @@ function Modal({ initial, onClose }: { initial?: any; onClose: () => void }) {
   const implantadores = users.filter((u:any) => u.role !== 'admin' || true)
 
   const mut = useMutation({
-    mutationFn: (d: any) => initial ? projectsApi.update(initial.id, d) : projectsApi.create(d),
+    mutationFn: (d: any) => {
+      // Campos de data opcionais: input type="date" retorna '' quando vazio,
+      // o que o backend não aceita como data válida — precisa virar undefined.
+      const payload = { ...d }
+      if (!payload.start_date) delete payload.start_date
+      if (!payload.internal_notes) delete payload.internal_notes
+      if (!payload.description) delete payload.description
+      return initial ? projectsApi.update(initial.id, payload) : projectsApi.create(payload)
+    },
     onSuccess: () => { qc.invalidateQueries({queryKey:['projects']}); onClose() }
   })
 

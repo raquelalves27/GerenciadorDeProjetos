@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-from datetime import date
+from datetime import date, timedelta
 
 from app.core.database import get_session
 from app.core.security import get_current_user, require_roles
@@ -137,12 +137,23 @@ async def clone_week(
     )
     source = result.scalars().all()
 
+    if body.user_ids:
+        source = [a for a in source if a.user_id in body.user_ids]
+
+    # Deslocamento (em dias) entre a semana de origem e a semana de destino,
+    # usado para recalcular o campo `day` de cada alocação clonada.
+    week_offset = (body.target_week - body.source_week).days
+
     cloned = 0
     for a in source:
+        # Preserva o dia exato da semana (segunda, terça, ...) deslocando-o
+        # para a nova semana, em vez de descartar a informação do dia.
+        new_day = (a.day + timedelta(days=week_offset)) if getattr(a, "day", None) else None
         new_a = Allocation(
             user_id=a.user_id,
             project_id=a.project_id,
             week_start=body.target_week,
+            day=new_day,
             shift=a.shift,
             activity_type=a.activity_type,
             notes=a.notes,

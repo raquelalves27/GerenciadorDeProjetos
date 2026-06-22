@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, X, ChevronLeft, ChevronRight, Copy, Loader2, User } from 'lucide-react'
+import { Plus, X, ChevronLeft, ChevronRight, Copy, Loader2, User, MessageCircle } from 'lucide-react'
 import { format, addWeeks, subWeeks, startOfWeek, addDays, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, getDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { scheduleApi, usersApi, projectsApi, clientsApi } from '@/lib/api'
@@ -35,6 +35,376 @@ const WEEK_DAYS = [
 
 function getInitials(name: string) {
   return name?.split(' ').slice(0,2).map((n:string)=>n[0]).join('').toUpperCase()||'?'
+}
+
+// ─── Geração do texto da agenda semanal para envio via WhatsApp ───────────────
+function buildWhatsappScheduleText({
+  users, schedule, clients, weekStart,
+}: { users: any[]; schedule: Record<string, any>; clients: any[]; weekStart: string }) {
+  const SHIFT_EMOJI: Record<string, string> = { manha: '🌅', tarde: '☀️' }
+  const SHIFT_LABEL: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
+
+  const weekDates = WEEK_DAYS.map(d => ({
+    ...d,
+    dateStr: format(addDays(new Date(weekStart + 'T12:00:00'), d.key), 'dd/MM'),
+  }))
+  const periodLabel = `${weekDates[0].dateStr} a ${weekDates[weekDates.length - 1].dateStr}`
+
+  const clientName = (a: any) => {
+    const proj = a.project || {}
+    const c = clients.find((c: any) => c.id === proj.client_id)
+    return c?.name || proj.name || '—'
+  }
+
+  let text = `📅 *AGENDA SEMANAL — IMPLANTADORES*\n🗓️ Semana de ${periodLabel}\n`
+  text += '━━━━━━━━━━━━━━━━━━━━\n'
+
+  const usersWithAllocations = users.filter((user: any) => {
+    const ua = schedule[user.id] || {}
+    return ['manha', 'tarde'].some(sh => (ua[sh] || []).length > 0)
+  })
+
+  if (usersWithAllocations.length === 0) {
+    text += '\nNenhuma alocação cadastrada para esta semana.\n'
+  }
+
+  usersWithAllocations.forEach((user: any) => {
+    const userAllocs = schedule[user.id] || {}
+    text += `\n👤 *${user.name.toUpperCase()}*\n`
+
+    weekDates.forEach(day => {
+      const dayStr = format(addDays(new Date(weekStart + 'T12:00:00'), day.key), 'yyyy-MM-dd')
+      const lines: string[] = []
+
+      ;['manha', 'tarde'].forEach(sh => {
+        const items = (userAllocs[sh] || []).filter((a: any) => (a.day || a.week_start) === dayStr)
+        if (items.length > 0) {
+          const names = items.map((a: any) => clientName(a)).join(', ')
+          lines.push(`   ${SHIFT_EMOJI[sh]} ${SHIFT_LABEL[sh]}: ${names}`)
+        }
+      })
+
+      if (lines.length > 0) {
+        text += `*${day.label} (${day.dateStr})*\n${lines.join('\n')}\n`
+      }
+    })
+  })
+
+  text += '\n━━━━━━━━━━━━━━━━━━━━\n_Agenda gerada automaticamente_'
+  return text
+}
+
+// ─── Paleta de cores fixa por cliente (determinística pelo nome) ─────────────
+const CLIENT_PALETTE = [
+  '#E63946', // vermelho
+  '#7B2CBF', // roxo
+  '#2A9D8F', // verde-azulado
+  '#B8860B', // dourado/oliva
+  '#1D8FD9', // azul
+  '#E76F51', // laranja
+  '#D62894', // rosa forte
+  '#264653', // azul petróleo
+  '#52B788', // verde
+  '#9C6644', // marrom
+]
+// Cores fixas para os clientes mais recorrentes, para manter uma identidade
+// visual estável independente do hash (case-insensitive, por prefixo do nome)
+const CLIENT_COLOR_OVERRIDES: Record<string, string> = {
+  'prohospital': '#E63946',
+  'provix': '#7B2CBF',
+  'açaí belo norte': '#B8860B',
+  'acai belo norte': '#B8860B',
+  'nazaria': '#2A9D8F',
+  'redepharma': '#1D8FD9',
+  'rede pharma': '#1D8FD9',
+  'am farma': '#E76F51',
+  'amfarma': '#E76F51',
+  'prisma': '#111827',
+  'independente': '#F472B6',
+  'agil': '#84CC16',
+  'agil marinho': '#84CC16',
+  'casa do médico': '#264653',
+  'casa do medico': '#264653',
+}
+function colorForClient(name: string) {
+  const key = name.trim().toLowerCase()
+  if (CLIENT_COLOR_OVERRIDES[key]) return CLIENT_COLOR_OVERRIDES[key]
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  return CLIENT_PALETTE[hash % CLIENT_PALETTE.length]
+}
+
+// ─── Geração da imagem da agenda semanal (canvas) ─────────────────────────────
+function buildScheduleImageDataUrl({
+  users, schedule, clients, weekStart,
+}: { users: any[]; schedule: Record<string, any>; clients: any[]; weekStart: string }): string | null {
+  if (typeof document === 'undefined') return null
+
+  const weekDates = WEEK_DAYS.map(d => ({
+    ...d,
+    dateStr: format(addDays(new Date(weekStart + 'T12:00:00'), d.key), 'dd/MM'),
+    dayStr: format(addDays(new Date(weekStart + 'T12:00:00'), d.key), 'yyyy-MM-dd'),
+  }))
+
+  const clientName = (a: any) => {
+    const proj = a.project || {}
+    const c = clients.find((c: any) => c.id === proj.client_id)
+    return c?.name || proj.name || '—'
+  }
+
+  const usersWithAllocations = users.filter((user: any) => {
+    const ua = schedule[user.id] || {}
+    return ['manha', 'tarde'].some(sh => (ua[sh] || []).length > 0)
+  })
+  const rows = usersWithAllocations.length > 0 ? usersWithAllocations : users
+
+  // ─ Layout
+  const nameColW = 190
+  const shiftColW = 56
+  const dayColW = 230
+  const headerH = 70
+  const rowH = 56 // altura de cada linha de turno (M ou T)
+  const titleH = 64
+  const padding = 24
+  const width = padding * 2 + nameColW + shiftColW + dayColW * weekDates.length
+  const bodyH = rows.length * rowH * 2
+  const height = titleH + headerH + bodyH + padding
+
+  const canvas = document.createElement('canvas')
+  const scale = 2 // melhora nitidez (retina)
+  canvas.width = width * scale
+  canvas.height = height * scale
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.scale(scale, scale)
+
+  // Fundo
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, width, height)
+
+  // Título
+  ctx.fillStyle = '#1f2937'
+  ctx.font = '600 22px Arial, sans-serif'
+  ctx.textBaseline = 'middle'
+  const periodLabel = `${weekDates[0].dateStr} a ${weekDates[weekDates.length - 1].dateStr}`
+  ctx.fillText(`Agenda Semanal — Implantadores`, padding, padding + 14)
+  ctx.font = '400 14px Arial, sans-serif'
+  ctx.fillStyle = '#6b7280'
+  ctx.fillText(`Semana de ${periodLabel}`, padding, padding + 38)
+
+  let y = titleH
+
+  // Cabeçalho dos dias
+  ctx.fillStyle = '#FDE68A' // amarelo claro, como no modelo
+  ctx.fillRect(padding + nameColW + shiftColW, y, dayColW * weekDates.length, headerH)
+  ctx.fillStyle = '#111827'
+  ctx.font = '700 15px Arial, sans-serif'
+  ctx.textAlign = 'center'
+  weekDates.forEach((d, i) => {
+    const cx = padding + nameColW + shiftColW + dayColW * i + dayColW / 2
+    ctx.fillText(d.label.toUpperCase(), cx, y + headerH / 2)
+  })
+  ctx.textAlign = 'left'
+  y += headerH
+
+  const tableTop = y
+  const tableLeft = padding
+  const tableWidth = nameColW + shiftColW + dayColW * weekDates.length
+
+  rows.forEach((user: any, ri: number) => {
+    const userAllocs = schedule[user.id] || {}
+    const rowTop = y
+
+    // Faixa de fundo do nome (cor salmão clara, como no print)
+    ctx.fillStyle = ri % 2 === 0 ? '#F6CFA9' : '#F8DBC0'
+    ctx.fillRect(tableLeft, rowTop, nameColW, rowH * 2)
+
+    // Nome do implantador (centralizado verticalmente nas duas linhas)
+    ctx.fillStyle = '#1f2937'
+    ctx.font = '700 15px Arial, sans-serif'
+    ctx.textAlign = 'left'
+    const nameLines = user.name.toUpperCase().split(' ')
+    ctx.fillText(nameLines[0] || user.name.toUpperCase(), tableLeft + 14, rowTop + rowH)
+
+    ;['manha', 'tarde'].forEach((sh, si) => {
+      const cellTop = rowTop + si * rowH
+
+      // Badge M/T
+      const badgeColor = sh === 'manha' ? '#1D3557' : '#9D2933'
+      const badgeCx = tableLeft + nameColW + shiftColW / 2
+      const badgeCy = cellTop + rowH / 2
+      ctx.beginPath()
+      ctx.arc(badgeCx, badgeCy, 14, 0, Math.PI * 2)
+      ctx.fillStyle = badgeColor
+      ctx.fill()
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '700 13px Arial, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(sh === 'manha' ? 'M' : 'T', badgeCx, badgeCy + 1)
+      ctx.textAlign = 'left'
+
+      // Pílulas por dia
+      weekDates.forEach((day, di) => {
+        const cellLeft = tableLeft + nameColW + shiftColW + dayColW * di
+        const items = (userAllocs[sh] || []).filter((a: any) => (a.day || a.week_start) === day.dayStr)
+
+        // Borda da célula
+        ctx.strokeStyle = '#e5e7eb'
+        ctx.lineWidth = 1
+        ctx.strokeRect(cellLeft, cellTop, dayColW, rowH)
+
+        if (items.length > 0) {
+          const label = items.map((a: any) => clientName(a)).join(' + ')
+          const pillX = cellLeft + 8
+          const pillY = cellTop + 6
+          const pillW = dayColW - 16
+          const pillH = rowH - 12
+          const radius = pillH / 2
+
+          ctx.fillStyle = colorForClient(label)
+          ctx.beginPath()
+          ctx.moveTo(pillX + radius, pillY)
+          ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + pillH, radius)
+          ctx.arcTo(pillX + pillW, pillY + pillH, pillX, pillY + pillH, radius)
+          ctx.arcTo(pillX, pillY + pillH, pillX, pillY, radius)
+          ctx.arcTo(pillX, pillY, pillX + pillW, pillY, radius)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.font = '700 12px Arial, sans-serif'
+          ctx.textAlign = 'center'
+          // Trunca texto se não couber
+          let display = label.toUpperCase()
+          const maxW = pillW - 16
+          while (ctx.measureText(display).width > maxW && display.length > 3) {
+            display = display.slice(0, -2)
+          }
+          if (display !== label.toUpperCase()) display = display.trim() + '…'
+          ctx.fillText(display, pillX + pillW / 2, pillY + pillH / 2 + 1)
+          ctx.textAlign = 'left'
+        }
+      })
+    })
+
+    y += rowH * 2
+  })
+
+  // Bordas externas e linhas verticais da tabela
+  ctx.strokeStyle = '#d1d5db'
+  ctx.lineWidth = 1.5
+  ctx.strokeRect(tableLeft, tableTop, tableWidth, y - tableTop)
+  ctx.beginPath()
+  ctx.moveTo(tableLeft + nameColW, tableTop)
+  ctx.lineTo(tableLeft + nameColW, y)
+  ctx.moveTo(tableLeft + nameColW + shiftColW, tableTop)
+  ctx.lineTo(tableLeft + nameColW + shiftColW, y)
+  ctx.strokeStyle = '#e5e7eb'
+  ctx.stroke()
+
+  return canvas.toDataURL('image/png')
+}
+
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const arr = dataUrl.split(',')
+  const mimeMatch = arr[0].match(/:(.*?);/)
+  const mime = mimeMatch ? mimeMatch[1] : 'image/png'
+  const bstr = atob(arr[1])
+  let n = bstr.length
+  const u8arr = new Uint8Array(n)
+  while (n--) u8arr[n] = bstr.charCodeAt(n)
+  return new File([u8arr], filename, { type: mime })
+}
+
+// ─── Modal de compartilhamento da agenda via WhatsApp (imagem + texto) ────────
+function ShareScheduleModal({ imageDataUrl, text, onClose }: { imageDataUrl: string; text: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const canNativeShare = typeof navigator !== 'undefined' && !!(navigator as any).share
+
+  const downloadImage = () => {
+    const a = document.createElement('a')
+    a.href = imageDataUrl
+    a.download = 'agenda-semanal.png'
+    a.click()
+  }
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {}
+  }
+
+  const nativeShare = async () => {
+    try {
+      const file = dataUrlToFile(imageDataUrl, 'agenda-semanal.png')
+      const shareData: any = { text, files: [file] }
+      if ((navigator as any).canShare && !(navigator as any).canShare(shareData)) {
+        // Fallback: compartilha só o texto se o navegador não aceitar arquivo
+        await (navigator as any).share({ text })
+        return
+      }
+      await (navigator as any).share(shareData)
+    } catch {}
+  }
+
+  const openWhatsapp = () => {
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`
+    window.open(url, '_blank')
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Enviar agenda via WhatsApp</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Imagem + texto prontos para compartilhar</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><X size={16}/></button>
+        </div>
+
+        <div className="px-5 py-4 overflow-y-auto space-y-4">
+          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imageDataUrl} alt="Prévia da agenda semanal" className="w-full h-auto" />
+          </div>
+
+          {canNativeShare ? (
+            <button onClick={nativeShare}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700">
+              <MessageCircle size={15}/> Compartilhar imagem + texto
+            </button>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-700">
+              Seu navegador não permite anexar a imagem automaticamente ao WhatsApp. Baixe a imagem abaixo e anexe manualmente junto com o texto copiado.
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={downloadImage}
+              className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Copy size={14}/> Baixar imagem
+            </button>
+            <button onClick={copyText}
+              className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Copy size={14}/> {copied ? 'Texto copiado!' : 'Copiar texto'}
+            </button>
+          </div>
+
+          <button onClick={openWhatsapp}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium border border-green-200 bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
+            Abrir WhatsApp com o texto
+          </button>
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 flex justify-end flex-shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Fechar</button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Modal de nova alocação ────────────────────────────────────────────────────
@@ -123,6 +493,7 @@ function WeekGrid({ weekStart, selectedUserId }: { weekStart: string; selectedUs
   const { data: clients=[] } = useQuery({ queryKey:['clients'], queryFn: clientsApi.list })
 
   const [modal, setModal] = useState<{ userId: string; shift: any; dayOffset: number } | null>(null)
+  const [shareModal, setShareModal] = useState<{ imageDataUrl: string; text: string } | null>(null)
 
   const del = useMutation({
     mutationFn: (id: string) => scheduleApi.delete(id),
@@ -153,14 +524,26 @@ function WeekGrid({ weekStart, selectedUserId }: { weekStart: string; selectedUs
 
   return (
     <div>
-      {/* Botão clonar */}
-      <div className="flex items-center gap-2 mb-4">
+      {/* Botões de ação */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <button onClick={() => clone.mutate()} disabled={clone.isPending}
           className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40">
           {clone.isPending ? <Loader2 size={14} className="animate-spin"/> : <Copy size={14}/>}
           Clonar semana anterior
         </button>
         {clone.isSuccess && <span className="text-xs text-green-600">{(clone.data as any)?.message}</span>}
+
+        <button
+          onClick={() => {
+            const text = buildWhatsappScheduleText({ users: filteredUsers as any[], schedule: schedule as any, clients: clients as any[], weekStart })
+            const imageDataUrl = buildScheduleImageDataUrl({ users: filteredUsers as any[], schedule: schedule as any, clients: clients as any[], weekStart })
+            if (imageDataUrl) setShareModal({ imageDataUrl, text })
+            else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+          }}
+          className="flex items-center gap-2 px-3 py-2 text-sm text-green-700 border border-green-200 bg-green-50 rounded-lg hover:bg-green-100">
+          <MessageCircle size={14}/>
+          Enviar agenda via WhatsApp
+        </button>
       </div>
 
       {(loadingUsers || loadingSched) ? (
@@ -263,6 +646,14 @@ function WeekGrid({ weekStart, selectedUserId }: { weekStart: string; selectedUs
           weekStart={weekStart}
           dayOffset={modal.dayOffset}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {shareModal && (
+        <ShareScheduleModal
+          imageDataUrl={shareModal.imageDataUrl}
+          text={shareModal.text}
+          onClose={() => setShareModal(null)}
         />
       )}
     </div>
