@@ -5,13 +5,15 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Calendar, BarChart3, Bell, Settings,
-  ChevronLeft, ChevronRight, LogOut, Briefcase
+  ChevronLeft, ChevronRight, LogOut, Briefcase, ListChecks, Compass
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Projetos' },
+  { href: '/tasks', icon: ListChecks, label: 'Tarefas' },
   { href: '/schedule', icon: Calendar, label: 'Agenda Semanal' },
+  { href: '/decisions', icon: Compass, label: 'Decisões' },
   { href: '/executive', icon: BarChart3, label: 'Executivo' },
   { href: '/settings', icon: Settings, label: 'Configurações' },
 ]

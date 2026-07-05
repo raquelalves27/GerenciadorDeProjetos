@@ -74,3 +74,19 @@ async def projects_timeline(
     """Dados para gráfico Gantt/timeline dos projetos."""
     repo = KpiRepository(session)
     return await repo.get_timeline(current_user.org_id, start, end)
+
+
+@router.get("/allocation-insights")
+async def allocation_insights(
+    start: Optional[date] = Query(None, description="Filtra alocações a partir dessa semana (week_start)"),
+    end: Optional[date] = Query(None, description="Filtra alocações até essa semana (week_start)"),
+    current_user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Insights de agenda alocada: profissional x cliente, cliente com mais/menos
+    alocações e ranking geral por profissional. Sem start/end, considera todo
+    o histórico de alocações.
+    """
+    repo = KpiRepository(session)
+    return await repo.get_allocation_insights(current_user.org_id, start, end)

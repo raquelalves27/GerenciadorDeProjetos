@@ -146,3 +146,83 @@ class KpiRepository:
             }
             for p in projects
         ]
+
+    async def get_allocation_insights(
+        self, org_id: str,
+        start: Optional[date] = None, end: Optional[date] = None,
+    ):
+        """
+        Cruza Allocation x Project x Client x User para responder:
+        - qual profissional mais atende cada cliente (e no total)
+        - qual cliente recebe mais/menos alocações no período
+        Unidade = turnos alocados (mesma unidade já usada em get_team_capacity),
+        já que start_time/end_time nem sempre são preenchidos.
+        """
+        from app.models.models import Client
+
+        query = (
+            select(
+                User.id.label("user_id"), User.name.label("user_name"),
+                Client.id.label("client_id"), Client.name.label("client_name"),
+                func.count(Allocation.id).label("shifts"),
+            )
+            .select_from(Allocation)
+            .join(Project, Allocation.project_id == Project.id)
+            .join(Client, Project.client_id == Client.id)
+            .join(User, Allocation.user_id == User.id)
+            .where(Project.org_id == org_id)
+        )
+        if start:
+            query = query.where(Allocation.week_start >= start)
+        if end:
+            query = query.where(Allocation.week_start <= end)
+        query = query.group_by(User.id, User.name, Client.id, Client.name)
+
+        rows = (await self.session.execute(query)).all()
+        by_professional_client = sorted(
+            [
+                {
+                    "user_id": r.user_id, "user_name": r.user_name,
+                    "client_id": r.client_id, "client_name": r.client_name,
+                    "shifts": r.shifts,
+                }
+                for r in rows
+            ],
+            key=lambda x: x["shifts"], reverse=True,
+        )
+
+        # Todos os clientes ativos da org, para capturar quem tem ZERO alocações
+        # (uma junção interna nunca mostraria esses casos).
+        clients_result = await self.session.execute(
+            select(Client.id, Client.name).where(Client.org_id == org_id, Client.is_active == True)
+        )
+        all_clients = {r[0]: r[1] for r in clients_result.fetchall()}
+
+        client_totals: dict = {cid: 0 for cid in all_clients}
+        for row in by_professional_client:
+            client_totals[row["client_id"]] = client_totals.get(row["client_id"], 0) + row["shifts"]
+
+        by_client_total = sorted(
+            [{"client_id": cid, "client_name": name, "shifts": client_totals.get(cid, 0)}
+             for cid, name in all_clients.items()],
+            key=lambda x: x["shifts"],
+        )
+
+        prof_totals: dict = {}
+        for row in by_professional_client:
+            key = (row["user_id"], row["user_name"])
+            prof_totals[key] = prof_totals.get(key, 0) + row["shifts"]
+        by_professional_total = sorted(
+            [{"user_id": k[0], "user_name": k[1], "shifts": v} for k, v in prof_totals.items()],
+            key=lambda x: x["shifts"], reverse=True,
+        )
+
+        return {
+            "period": {"start": str(start) if start else None, "end": str(end) if end else None},
+            "by_professional_client": by_professional_client[:30],
+            "by_client_total": by_client_total,
+            "by_professional_total": by_professional_total,
+            "top_pair": by_professional_client[0] if by_professional_client else None,
+            "least_allocated_client": by_client_total[0] if by_client_total else None,
+            "most_allocated_client": by_client_total[-1] if by_client_total else None,
+        }

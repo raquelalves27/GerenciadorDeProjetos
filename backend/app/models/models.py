@@ -66,6 +66,22 @@ class AlertType(str, Enum):
     PRAZO_PROXIMO = "prazo_proximo"
 
 
+class TaskStatus(str, Enum):
+    A_FAZER = "a_fazer"
+    EM_ANDAMENTO = "em_andamento"
+    AGUARDANDO_TERCEIRO = "aguardando_terceiro"
+    ATRASADO = "atrasado"
+    MONITORAMENTO = "monitoramento"
+    CONCLUIDO = "concluido"
+
+
+class TaskImpact(str, Enum):
+    BAIXO = "baixo"
+    MEDIO = "medio"
+    ALTO = "alto"
+    CRITICO = "critico"
+
+
 class Organization(SQLModel, table=True):
     __tablename__ = "organizations"
     id: str = Field(default_factory=gen_uuid, primary_key=True)
@@ -213,3 +229,32 @@ class Alert(SQLModel, table=True):
     message: str
     is_read: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Task(SQLModel, table=True):
+    """
+    Tarefa operacional ligada a um cliente (e opcionalmente a um projeto formal).
+    Cobre o dia a dia de gestão multi-cliente: pendências, follow-ups e itens
+    impeditivos que nem sempre estão amarrados a uma etapa (ProjectStage) de
+    um projeto de implantação já aberto.
+    """
+    __tablename__ = "tasks"
+    id: str = Field(default_factory=gen_uuid, primary_key=True)
+    org_id: str = Field(foreign_key="organizations.id", index=True)
+    client_id: str = Field(foreign_key="clients.id", index=True)
+    project_id: Optional[str] = Field(default=None, foreign_key="projects.id", index=True)
+    title: str
+    description: Optional[str] = None
+    status: TaskStatus = Field(default=TaskStatus.A_FAZER, index=True)
+    impact: TaskImpact = Field(default=TaskImpact.MEDIO, index=True)
+    is_blocker: bool = Field(default=False, index=True)
+    responsible: Optional[str] = None
+    waiting_on: Optional[str] = None
+    due_date: Optional[date] = None
+    due_note: Optional[str] = None
+    escalate_to_manager: bool = Field(default=False, index=True)
+    escalation_reason: Optional[str] = None
+    notes: Optional[str] = None
+    created_by: str = Field(foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None

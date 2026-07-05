@@ -4,11 +4,13 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { Providers } from '@/components/Providers'
-import { LayoutDashboard, Calendar, BarChart3, Settings, ChevronLeft, ChevronRight, Briefcase, Bell, LogOut } from 'lucide-react'
+import { LayoutDashboard, Calendar, BarChart3, Settings, ChevronLeft, ChevronRight, Briefcase, Bell, LogOut, ListChecks, Compass } from 'lucide-react'
 
 const NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Projetos' },
+  { href: '/tasks',     icon: ListChecks,       label: 'Tarefas' },
   { href: '/schedule',  icon: Calendar,         label: 'Agenda Semanal' },
+  { href: '/decisions', icon: Compass,          label: 'Decisões' },
   { href: '/executive', icon: BarChart3,         label: 'Executivo' },
   { href: '/settings',  icon: Settings,          label: 'Configurações' },
 ]

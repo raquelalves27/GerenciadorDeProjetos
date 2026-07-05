@@ -7,6 +7,7 @@ from .models import (
     Allocation, ShiftType, ActivityType,
     Risk, RiskSeverity,
     AuditLog, Alert, AlertType,
+    Task, TaskStatus, TaskImpact,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ProjectStage", "StageStatus", "ProjectUpdate",
     "Allocation", "ShiftType", "ActivityType",
     "Risk", "RiskSeverity", "AuditLog", "Alert", "AlertType",
+    "Task", "TaskStatus", "TaskImpact",
 ]

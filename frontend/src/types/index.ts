@@ -27,6 +27,16 @@ export type AlertType =
   | 'sem_evolucao'
   | 'prazo_proximo'
 
+export type TaskStatus =
+  | 'a_fazer'
+  | 'em_andamento'
+  | 'aguardando_terceiro'
+  | 'atrasado'
+  | 'monitoramento'
+  | 'concluido'
+
+export type TaskImpact = 'baixo' | 'medio' | 'alto' | 'critico'
+
 // ─── Entities ─────────────────────────────────────────────────────────────────
 
 export interface User {
@@ -201,4 +211,44 @@ export interface TeamCapacity {
     occupancy_pct: number
   }>
   week_start: string
+}
+
+// ─── Tarefas (painel de gestão multi-cliente) ──────────────────────────────────
+
+export interface Task {
+  id: string
+  org_id: string
+  client_id: string
+  project_id?: string
+  title: string
+  description?: string
+  status: TaskStatus
+  impact: TaskImpact
+  is_blocker: boolean
+  responsible?: string
+  waiting_on?: string
+  due_date?: string
+  due_note?: string
+  escalate_to_manager: boolean
+  escalation_reason?: string
+  notes?: string
+  created_by: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface TaskFilters {
+  client_id?: string
+  status?: TaskStatus
+  impact?: TaskImpact
+  is_blocker?: boolean
+  escalate_to_manager?: boolean
+  search?: string
+}
+
+export interface TaskOpenSummary {
+  total_open: number
+  blockers: number
+  escalations: number
+  overdue: number
 }

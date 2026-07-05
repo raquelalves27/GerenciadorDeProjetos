@@ -91,7 +91,17 @@ export const scheduleApi = {
   cloneWeek: (d: any) => post('/api/v1/schedule/clone-week', d),
 }
 
+export const tasksApi = {
+  list: (params?: any) => api.get('/api/v1/tasks/', { params }).then(x => x.data),
+  get: (id: string) => r(`/api/v1/tasks/${id}`),
+  create: (d: any) => post('/api/v1/tasks/', d),
+  update: (id: string, d: any) => patch(`/api/v1/tasks/${id}`, d),
+  delete: (id: string) => del(`/api/v1/tasks/${id}`),
+  openSummary: () => r('/api/v1/tasks/summary/open'),
+}
+
 export const kpisApi = {
-  executive: () => r('/api/v1/kpis/executive'),
+  executive: (params?: any) => api.get('/api/v1/kpis/executive', { params }).then(x => x.data),
   teamCapacity: (weekStart: string) => r(`/api/v1/kpis/team-capacity?week_start=${weekStart}`),
+  allocationInsights: (params?: any) => api.get('/api/v1/kpis/allocation-insights', { params }).then(x => x.data),
 }
